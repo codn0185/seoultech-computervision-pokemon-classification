@@ -21,23 +21,24 @@ class PokemonClassification:
     def run(self):
         st.header("Pokemon Classification")
 
-        # 버튼 클릭하여 모델 학습 시작
-        if st.button("모델 학습 시작"):
+        # 모델 얻기 (로드/학습)
+        if st.button("모델 불러오기/학습하기"):
             # 각 모델 빌드
             models = {}
             with st.expander("모델 학습", expanded=True):
-                models["AlexNet"] = self.train_model_with_ui("AlexNet", self.build_alexnet)
-                models["ResNet18"] = self.train_model_with_ui("ResNet18", self.build_resnet18)
-                # models["VGGNet16"] = self.train_model_with_ui("VGGNet16", self.build_vgg16)
-                # models["EfficientNet-B0"] = self.train_model_with_ui("EfficientNet-B0", self.build_efficientnet_b0)
+                models["AlexNet"] = self.get_model_with_ui("AlexNet", self.build_alexnet)
+                models["ResNet18"] = self.get_model_with_ui("ResNet18", self.build_resnet18)
+                models["VGGNet16"] = self.get_model_with_ui("VGGNet16", self.build_vgg16)
+                models["EfficientNet-B0"] = self.get_model_with_ui("EfficientNet-B0", self.build_efficientnet_b0)
 
-                models["AlexNet (fine-tuning)"] = self.train_model_with_ui("AlexNet (fine-tuning)", self.build_alexnet, True)
-                models["ResNet18 (fine-tuning)"] = self.train_model_with_ui("ResNet18 (fine-tuning)", self.build_resnet18, True)
-                # models["VGGNet16 (fine-tuning)"] = self.train_model_with_ui("VGGNet16 (fine-tuning)", self.build_vgg16, True)
-                # models["EfficientNet-B0 (fine-tuning)"] = self.train_model_with_ui("EfficientNet-B0 (fine-tuning)", self.build_efficientnet_b0, True)
+                models["AlexNet (fine-tuning)"] = self.get_model_with_ui("AlexNet (fine-tuning)", self.build_alexnet, True)
+                models["ResNet18 (fine-tuning)"] = self.get_model_with_ui("ResNet18 (fine-tuning)", self.build_resnet18, True)
+                models["VGGNet16 (fine-tuning)"] = self.get_model_with_ui("VGGNet16 (fine-tuning)", self.build_vgg16, True)
+                models["EfficientNet-B0 (fine-tuning)"] = self.get_model_with_ui("EfficientNet-B0 (fine-tuning)", self.build_efficientnet_b0, True)
 
             st.session_state["models"] = models  # 세션에 저장
 
+        # 모델 평가
         if "models" in st.session_state:
             with st.expander("모델 평가", expanded=True):
                 with st.spinner("모델 평가 중..."):
@@ -73,7 +74,7 @@ class PokemonClassification:
                         hide_index=True,
                     )
         else:
-            st.info("먼저 '모델 학습 시작' 버튼을 눌러주세요.")
+            st.info("먼저 '모델 불러오기/학습하기' 버튼을 눌러주세요.")
 
     # 데이터셋 다운로드 및 로드
     def download_and_load_dataset(self):
@@ -129,28 +130,45 @@ class PokemonClassification:
                 param.requires_grad = True
         return model
 
-    def train_model_with_ui(self, model_name, build_function, fine_tuning: bool = False):
-        with st.spinner(f"'{model_name}' 모델 학습 중..."):
-            model = build_function(fine_tuning)
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            model.to(device)
-            model.train()
-            optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
-            criterion = torch.nn.CrossEntropyLoss()
-            loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=256, shuffle=True)
-            total_batches = len(loader)
-            progress = st.progress(0, text=f"{model_name} 학습 진행 중...")
-            for batch_idx, (images, labels) in enumerate(loader, 1):
-                images, labels = images.to(device), labels.to(device)
-                optimizer.zero_grad()
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
-                progress.progress(batch_idx / total_batches, text=f"{model_name} {batch_idx}/{total_batches} 배치 학습 완료")
-            progress.empty()
-        st.write(f"✅ '{model_name}' 모델 학습 완료")
-        return model
+    def get_model_with_ui(self, model_name, build_function, fine_tuning: bool = False):
+        try:
+            # 저장된 모델이 있다면 불러오기
+            model = self.load_model(model_name)
+            st.write(f"💾 저장된 '{model_name}' 모델을 불러왔습니다.")
+            return model
+        except Exception as e:
+            # 모델을 새로 학습하기
+            st.warning(f"저장된 모델을 불러올 수 없어 새로 학습합니다. (사유: {e})")
+            with st.spinner(f"'{model_name}' 모델 학습 중..."):
+                model = build_function(fine_tuning)
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                model.to(device)
+                model.train()
+                optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+                criterion = torch.nn.CrossEntropyLoss()
+                loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=32, shuffle=True)
+                total_batches = len(loader)
+                progress = st.progress(0, text=f"{model_name} 학습 진행 중...")
+                for batch_idx, (images, labels) in enumerate(loader, 1):
+                    images, labels = images.to(device), labels.to(device)
+                    optimizer.zero_grad()
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
+                    progress.progress(batch_idx / total_batches, text=f"{model_name} {batch_idx}/{total_batches} 배치 학습 완료")
+                progress.empty()
+            st.write(f"✅ '{model_name}' 모델 학습 완료")
+            self.save_model(model, model_name)
+            return model
+
+    # 모델을 파일로 저장
+    def save_model(self, model, model_name):
+        torch.save(model, f"./model/{model_name}.pth")
+
+    # 저장된 모델 불러오기
+    def load_model(self, model_name: str):
+        return torch.load(f"./model/{model_name}.pth", weights_only=False)
 
     # 모델 성능 측정 (정확도, 정밀도, 재현율, F1)
     def evaluate_model(self, model):

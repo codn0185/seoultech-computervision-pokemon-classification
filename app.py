@@ -1,6 +1,3 @@
-import streamlit as st
-import time
-
 from pokemon_classification import PokemonClassification
 
 

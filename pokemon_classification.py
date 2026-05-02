@@ -1,5 +1,6 @@
 import kagglehub
 import torch
+import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 from torchvision.models import AlexNet_Weights, ResNet18_Weights, VGG16_Weights, EfficientNet_B0_Weights
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -8,6 +9,9 @@ from streamlit.delta_generator import DeltaGenerator
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import random as rd
+from pathlib import Path
+from PIL import Image
 
 
 class PokemonClassification:
@@ -27,10 +31,17 @@ class PokemonClassification:
     def run(self):
         st.header("Pokemon Classification")
 
+        # 세션 초기화
+        if "started" not in st.session_state:
+            st.session_state["started"] = False
+
         # 버튼 눌러 시작
-        if not st.button("시작하기"):
+        if st.button("시작하기"):
+            st.session_state["started"] = True
+
+        if not st.session_state["started"]:
             st.info("먼저 '시작하기' 버튼을 눌러주세요.")
-            return
+            st.stop()
 
         # 모델 준비
         with st.expander("모델 준비", expanded=True):
@@ -45,12 +56,82 @@ class PokemonClassification:
 
                 self.render_learning_curve_plot(model_name)
 
-        # 모델 학습 결과
+        # 모델 평가 결과
         with st.expander("모델 평가 결과", expanded=True):
             self.render_model_evaluation_table()
 
-        # 직접 이미지를 추가하여 모델의 결과 확인
-        # TODO
+        # 선택한 모델에 직접 이미지를 추가하여 예측 결과 확인
+        if "random_images" not in st.session_state:
+            st.session_state["random_images"] = []
+
+        with st.expander("모델 테스트", expanded=True):
+            # 무작위 이미지 출력
+            st.write("#### 무작위 이미지")
+
+            if not st.session_state["random_images"]:  # 첫 무작위 이미지 리스트 생성
+                st.session_state["random_images"] = self.get_random_images()
+            if st.button("이미지 새로고침"):  # 무작위 이미지 새로고침
+                st.session_state["random_images"] = self.get_random_images()
+
+            image_files = st.session_state["random_images"]
+            columns = st.columns(len(image_files), vertical_alignment="top")
+            for img, col in zip(image_files, columns):
+                name = Path(img).parent.name
+                col.image(img, caption=name, width="stretch")
+
+            # 이미지 업로드
+            st.write("#### 이미지 업로드")
+            uploaded_image_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png", "webp"])
+            if not uploaded_image_file:
+                st.stop()
+
+            # 업로드 이미지 렌더링
+            left_col, _ = st.columns([1, 2])
+            left_col.image(uploaded_image_file, caption="선택된 이미지", width="stretch")
+
+            # 각 모델의 예측 결과
+            st.write("#### 모델 별 예측 결과")
+            # 입력 이미지 전처리
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            image = Image.open(uploaded_image_file).convert("RGB")
+            transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(), transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+            input_tensor = transform(image).unsqueeze(0).to(device)  # 배치 차원 추가
+            # 각 모델 예측 수행
+            model_names = list(self.models_dict.keys())
+            tabs = st.tabs(model_names)
+            for model_name, tab in zip(model_names, tabs):
+                with tab:
+                    model = st.session_state[model_name]["model"]
+                    model.to(device)
+                    model.eval()
+                    # 예측 수행
+                    with torch.no_grad():
+                        outputs = model(input_tensor)
+
+                    probabilities = F.softmax(outputs[0], dim=0)  # 출력을 확률로 변환
+                    top5_prob, top5_catid = torch.topk(probabilities, 5)
+
+                    # 결과 렌더링
+                    left, _, right = st.columns([2, 1, 2])
+
+                    left.metric(
+                        "예측 결과",
+                        value=self.dataset.classes[top5_catid[0].item()],
+                        delta=f"{top5_prob[0].item() * 100:.4f}%",
+                        delta_color="green",
+                        border=True,
+                    )
+
+                    top_5_predict_df = pd.DataFrame(
+                        {
+                            "카테고리": [self.dataset.classes[top5_catid[i].item()] for i in range(5)],
+                            "확률": [f"{p * 100:.4f}%" for p in top5_prob],
+                        },
+                        index=[f"#{i+1}" for i in range(5)],
+                    )
+                    top_5_predict_df.index.name = "순위"
+                    right.dataframe(top_5_predict_df, width="content")
+                    right.caption("[상위 5개 예측 상세]")
 
     # 데이터셋 다운로드 및 로드
     def download_and_load_dataset(self):
@@ -64,6 +145,26 @@ class PokemonClassification:
         train_size = int(0.8 * len(self.dataset))
         test_size = len(self.dataset) - train_size
         self.train_dataset, self.test_dataset = torch.utils.data.random_split(self.dataset, [train_size, test_size])
+
+    # 무작위 이미지 파일 경로 리스트 반환
+    def get_random_images(self, count=5) -> list[str]:
+        """
+        데이터셋 내 이미지 중 무작위 count개를 반환한다.
+
+        Args:
+            count (int): 무작위로 선택할 개수
+        Returns:
+            image_file_paths (List[str]): 이미지 파일 경로 리스트
+        """
+        img_dir = Path("./dataset/PokemonData")
+        extensions = [".jpg", ".jpeg", ".png", "webp"]
+
+        img_files = [str(p) for p in img_dir.rglob("*") if p.suffix.lower() in extensions]
+
+        if len(img_files) < count:
+            return img_files
+
+        return rd.sample(img_files, count)
 
     # === 모델 빌드 ===
 
@@ -117,7 +218,8 @@ class PokemonClassification:
         self.models_dict["EfficientNet_B0"] = self.build_efficientnet_b0()
         self.models_dict["EfficientNet_B0 (fine-tuning)"] = self.build_efficientnet_b0(True)
 
-    def load_or_train_model_and_register(self, model_name: str) -> bool:
+    @st.cache_data
+    def load_or_train_model_and_register(_self, model_name: str) -> bool:
         """
         모델 관련 데이터를 불러온다. 저장된 데이터가 없으면 새로 학습 후 파일로 저장한다. 이후 st.session_state에 저장한다.
 
@@ -131,10 +233,10 @@ class PokemonClassification:
             st.session_state[model_name] = {}
 
         # 저장된 모델 관련 데이터 불러오기
-        valid, model, learning_curve, evaluation_results = self.load_saved_model_data(model_name)
+        valid, model, learning_curve, evaluation_results = _self.load_saved_model_data(model_name)
 
         if not valid:  # 모델을 새로 학습 및 관련 데이터 구하기
-            model = self.models_dict[model_name]
+            model = _self.models_dict[model_name]
             learning_curve = {}
             evaluation_results = {}
 
@@ -146,7 +248,7 @@ class PokemonClassification:
             model.train()
             optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
             criterion = torch.nn.CrossEntropyLoss()
-            loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=32, shuffle=True)
+            loader = torch.utils.data.DataLoader(_self.train_dataset, batch_size=32, shuffle=True)
             total_batches = len(loader)
             num_epochs = 5
             train_losses = []
@@ -166,7 +268,7 @@ class PokemonClassification:
                     _, preds = torch.max(outputs, 1)
                     correct += (preds == labels).sum().item()
                     total += labels.size(0)
-                    self.render_train_progress(model_name, epoch, num_epochs, batch_idx, total_batches, progress)
+                    _self.render_train_progress(model_name, epoch, num_epochs, batch_idx, total_batches, progress)
                 train_losses.append(epoch_loss / total_batches)
                 train_accuracies.append(correct / total)
 
@@ -177,12 +279,12 @@ class PokemonClassification:
             learning_curve["accuracy"] = train_accuracies
 
             # 모델 평가
-            evaluation_results = self.evaluate_model(model)
+            evaluation_results = _self.evaluate_model(model_name, model)
 
             # 파일로 저장
-            self.save_model(model, model_name)
-            self.save_learning_curve(learning_curve, model_name)
-            self.save_evaluation_results(evaluation_results, model_name)
+            _self.save_model(model, model_name)
+            _self.save_learning_curve(learning_curve, model_name)
+            _self.save_evaluation_results(evaluation_results, model_name)
 
         # 세션에 저장
         st.session_state[model_name]["model"] = model
@@ -192,19 +294,27 @@ class PokemonClassification:
         return valid
 
     # 모델 성능 측정 (정확도, 정밀도, 재현율, F1)
-    def evaluate_model(self, model):
+    @st.cache_data
+    def evaluate_model(_self, model_name, model):
+        progress = st.progress(0, text="모델 평가 진행 중...")
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model.eval()
         all_preds = []
         all_labels = []
-        loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=256)
+        loader = torch.utils.data.DataLoader(_self.test_dataset, batch_size=256)
+        total_batches = len(loader)
         with torch.no_grad():
-            for images, labels in loader:
+            for batch_idx, (images, labels) in enumerate(loader, 1):
                 images, labels = images.to(device), labels.to(device)
                 outputs = model(images)
                 _, preds = torch.max(outputs, 1)
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
+
+                _self.render_evaluation_progress(model_name, batch_idx, total_batches, progress)
+        progress.empty()
+
         all_preds = np.array(all_preds)
         all_labels = np.array(all_labels)
         accuracy = accuracy_score(all_labels, all_preds)
@@ -278,7 +388,15 @@ class PokemonClassification:
 
         container.progress(
             (epoch * total_batches + batch_idx) / (num_epochs * total_batches),
-            text=f"{model_name} {epoch+1}/{num_epochs} epoch, {batch_idx}/{total_batches} 배치 학습 완료",
+            text=f"{model_name} {epoch+1}/{num_epochs} epoch, {batch_idx}/{total_batches} batch 학습 완료",
+        )
+
+    def render_evaluation_progress(self, model_name: str, batch_idx: int, total_batches: int, container: DeltaGenerator = None):
+        container = container if container is not None else st
+
+        container.progress(
+            batch_idx / total_batches,
+            text=f"{batch_idx}/{total_batches} batch 평가 완료",
         )
 
     def render_learning_curve_plot(self, model_name):

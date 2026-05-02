@@ -77,16 +77,6 @@ class PokemonClassification:
                 param.requires_grad = True
         return model
 
-    def build_resnet18(self, fine_tuning: bool = False):
-        model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
-        model.fc = torch.nn.Linear(model.fc.in_features, self.num_classes)
-        if not fine_tuning:
-            for param in model.parameters():
-                param.requires_grad = False
-            for param in model.fc.parameters():
-                param.requires_grad = True
-        return model
-
     def build_vgg16(self, fine_tuning: bool = False):
         model = models.vgg16(weights=VGG16_Weights.DEFAULT)
         model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, self.num_classes)
@@ -94,6 +84,16 @@ class PokemonClassification:
             for param in model.parameters():
                 param.requires_grad = False
             for param in model.classifier[6].parameters():
+                param.requires_grad = True
+        return model
+
+    def build_resnet18(self, fine_tuning: bool = False):
+        model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
+        model.fc = torch.nn.Linear(model.fc.in_features, self.num_classes)
+        if not fine_tuning:
+            for param in model.parameters():
+                param.requires_grad = False
+            for param in model.fc.parameters():
                 param.requires_grad = True
         return model
 
@@ -109,13 +109,13 @@ class PokemonClassification:
 
     def build_all_models(self):
         self.models_dict["AlexNet"] = self.build_alexnet()
-        # self.models_dict["AlexNet (fine-tuning)"] = self.build_alexnet(True)
-        # self.models_dict["ResNet18"] = self.build_resnet18()
-        # self.models_dict["ResNet18 (fine-tuning)"] = self.build_resnet18(True)
-        # self.models_dict["VGG16"] = self.build_vgg16()
-        # self.models_dict["VGG16 (fine-tuning)"] = self.build_vgg16(True)
-        # self.models_dict["EfficientNet_B0"] = self.build_efficientnet_b0()
-        # self.models_dict["EfficientNet_B0 (fine-tuning)"] = self.build_efficientnet_b0(True)
+        self.models_dict["AlexNet (fine-tuning)"] = self.build_alexnet(True)
+        self.models_dict["VGG16"] = self.build_vgg16()
+        self.models_dict["VGG16 (fine-tuning)"] = self.build_vgg16(True)
+        self.models_dict["ResNet18"] = self.build_resnet18()
+        self.models_dict["ResNet18 (fine-tuning)"] = self.build_resnet18(True)
+        self.models_dict["EfficientNet_B0"] = self.build_efficientnet_b0()
+        self.models_dict["EfficientNet_B0 (fine-tuning)"] = self.build_efficientnet_b0(True)
 
     def load_or_train_model_and_register(self, model_name: str) -> bool:
         """

@@ -33,20 +33,20 @@ class PokemonClassification:
             return
 
         # 모델 준비
-        with st.expander("모델", expanded=True):
+        with st.expander("모델 준비", expanded=True):
             for model_name in self.models_dict:
-                with st.spinner(f"'{model_name}' 모델 학습 중..."):
+                with st.spinner(f"'{model_name}' 모델 준비 중..."):
                     is_loaded = self.load_or_train_model_and_register(model_name)
 
                 if is_loaded:
-                    st.write(f"💾 '{model_name}' 모델 불러오기 완료")
+                    st.write(f"💾 '{model_name}' 모델 데이터 불러오기 완료")
                 else:
-                    st.write(f"✅ '{model_name}' 모델 학습하기 완료")
+                    st.write(f"✅ '{model_name}' 모델 학습 및 평가 완료")
 
                 self.render_learning_curve_plot(model_name)
 
         # 모델 학습 결과
-        with st.expander("모델 학습 결과", expanded=True):
+        with st.expander("모델 평가 결과", expanded=True):
             self.render_model_evaluation_table()
 
         # 직접 이미지를 추가하여 모델의 결과 확인

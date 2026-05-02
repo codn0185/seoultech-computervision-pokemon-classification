@@ -285,12 +285,17 @@ class PokemonClassification:
         learning_curve = st.session_state[model_name]["learning_curve"]
 
         fig, ax1 = plt.subplots()
-        ax1.plot(learning_curve["loss"], label="Loss", color="tab:blue")
         ax1.set_xlabel("Epoch")
-        ax1.set_ylabel("Loss", color="tab:blue")
+        ax1.set_xticks(range(len(learning_curve["loss"])))
+
+        ax1.plot(learning_curve["loss"], label="Loss", color="tab:orange")
+        ax1.set_ylabel("Loss", color="tab:orange")
+
         ax2 = ax1.twinx()
-        ax2.plot(learning_curve["accuracy"], label="Accuracy", color="tab:orange")
-        ax2.set_ylabel("Accuracy", color="tab:orange")
+
+        ax2.plot(learning_curve["accuracy"], label="Accuracy", color="tab:blue")
+        ax2.set_ylabel("Accuracy", color="tab:blue")
+
         fig.suptitle(f"{model_name} Learning Curve")
         with st.popover(f"Learning Curve Graph - {model_name}"):
             st.pyplot(fig)

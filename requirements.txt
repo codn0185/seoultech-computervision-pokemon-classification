@@ -1,0 +1,9 @@
+kagglehub==1.0.1
+streamlit==1.57.0
+matplotlib==3.10.8
+pandas==2.3.3
+numpy==2.4.3
+Pillow==12.1.1
+scikit-learn==1.8.0
+torch==2.11.0
+torchvision==0.26.0
